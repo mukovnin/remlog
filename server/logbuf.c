@@ -5,6 +5,7 @@
 
 struct log_buffer_t {
     char *buffer;
+    char *tag;
     size_t max_size, capacity, write_pos;
     ssize_t oldest, newest;
 };
@@ -19,7 +20,7 @@ struct log_buffer_entry_t {
     ((offset) >= 0 ? (log_buffer_entry_t *)((char *)((b)->buffer) + (offset))  \
                    : NULL)
 
-log_buffer_t *log_buffer_create(size_t max_size, size_t initial_capacity)
+log_buffer_t *log_buffer_create(size_t max_size, size_t initial_capacity, const char *tag)
 {
     if (!max_size || initial_capacity > max_size)
         return NULL;
@@ -30,7 +31,9 @@ log_buffer_t *log_buffer_create(size_t max_size, size_t initial_capacity)
     pimpl->max_size               = max_size;
     pimpl->capacity               = initial_capacity;
     pimpl->write_pos              = 0;
+    pimpl->tag                    = strdup(tag);
     if (!(pimpl->buffer = malloc(pimpl->capacity))) {
+        free(pimpl->tag);
         free(pimpl);
         return NULL;
     }
@@ -39,13 +42,16 @@ log_buffer_t *log_buffer_create(size_t max_size, size_t initial_capacity)
 
 void log_buffer_free(log_buffer_t *b)
 {
+    free(b->tag);
     free(b->buffer);
     free(b);
 }
 
-bool log_buffer_add(log_buffer_t *b, const char *msg)
+bool log_buffer_add(log_buffer_t *b, uint64_t t, const char *msg)
 {
-    uint64_t timestamp = current_time_us();
+    log_buffer_entry_t *newest = ENTRY_OFFSET_TO_PTR(b, b->newest);
+    if (newest && newest->time > t)
+        return false;
     size_t msg_len     = strlen(msg) + 1,
            total_len   = sizeof(log_buffer_entry_t) + msg_len;
     if (total_len > b->max_size)
@@ -68,7 +74,7 @@ bool log_buffer_add(log_buffer_t *b, const char *msg)
         ENTRY_OFFSET_TO_PTR(b, b->newest)->next = b->write_pos;
     log_buffer_entry_t *e = ENTRY_OFFSET_TO_PTR(b, (ssize_t)b->write_pos);
     e->next = -1;
-    e->time = timestamp;
+    e->time = t;
     memcpy(e->msg, msg, msg_len);
     b->newest = b->write_pos;
     b->write_pos += total_len;
@@ -77,8 +83,13 @@ bool log_buffer_add(log_buffer_t *b, const char *msg)
     return true;
 }
 
-const log_buffer_entry_t *log_buffer_oldest_entry(log_buffer_t *b,
-                                                  uint64_t since)
+const char *log_buffer_tag(log_buffer_t *b)
+{
+    return b->tag;
+}
+
+log_buffer_entry_t *log_buffer_oldest_entry(log_buffer_t *b,
+                                            uint64_t since)
 {
     log_buffer_entry_t *p = ENTRY_OFFSET_TO_PTR(b, b->oldest);
     while (p && p->time < since)
@@ -86,18 +97,18 @@ const log_buffer_entry_t *log_buffer_oldest_entry(log_buffer_t *b,
     return p;
 }
 
-const log_buffer_entry_t *log_buffer_next_entry(log_buffer_t *b,
-                                                const log_buffer_entry_t *e)
+log_buffer_entry_t *log_buffer_next_entry(log_buffer_t *b,
+                                          log_buffer_entry_t *e)
 {
     return ENTRY_OFFSET_TO_PTR(b, e->next);
 }
 
-uint64_t log_entry_timestamp(const log_buffer_entry_t *e)
+uint64_t log_entry_timestamp(log_buffer_entry_t *e)
 {
     return e->time;
 }
 
-const char *log_entry_message(const log_buffer_entry_t *e)
+const char *log_entry_message(log_buffer_entry_t *e)
 {
     return e->msg;
 }
