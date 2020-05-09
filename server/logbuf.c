@@ -12,7 +12,7 @@ struct log_buffer_t {
 
 struct log_buffer_entry_t {
     ssize_t next;
-    uint64_t time;
+    struct timeval time;
     char msg[];
 };
 
@@ -47,10 +47,10 @@ void log_buffer_free(log_buffer_t *b)
     free(b);
 }
 
-bool log_buffer_add(log_buffer_t *b, uint64_t t, const char *msg)
+bool log_buffer_add(log_buffer_t *b, const struct timeval *t, const char *msg)
 {
     log_buffer_entry_t *newest = ENTRY_OFFSET_TO_PTR(b, b->newest);
-    if (newest && newest->time > t)
+    if (newest && timercmp(t, &newest->time, <))
         return false;
     size_t msg_len     = strlen(msg) + 1,
            total_len   = sizeof(log_buffer_entry_t) + msg_len;
@@ -74,7 +74,7 @@ bool log_buffer_add(log_buffer_t *b, uint64_t t, const char *msg)
         ENTRY_OFFSET_TO_PTR(b, b->newest)->next = b->write_pos;
     log_buffer_entry_t *e = ENTRY_OFFSET_TO_PTR(b, (ssize_t)b->write_pos);
     e->next = -1;
-    e->time = t;
+    e->time = *t;
     memcpy(e->msg, msg, msg_len);
     b->newest = b->write_pos;
     b->write_pos += total_len;
@@ -89,10 +89,10 @@ const char *log_buffer_tag(log_buffer_t *b)
 }
 
 log_buffer_entry_t *log_buffer_oldest_entry(log_buffer_t *b,
-                                            uint64_t since)
+                                            const struct timeval *since)
 {
     log_buffer_entry_t *p = ENTRY_OFFSET_TO_PTR(b, b->oldest);
-    while (p && p->time < since)
+    while (p && timercmp(&p->time, since, <))
         p = ENTRY_OFFSET_TO_PTR(b, p->next);
     return p;
 }
@@ -103,9 +103,9 @@ log_buffer_entry_t *log_buffer_next_entry(log_buffer_t *b,
     return ENTRY_OFFSET_TO_PTR(b, e->next);
 }
 
-uint64_t log_entry_timestamp(log_buffer_entry_t *e)
+const struct timeval *log_entry_timestamp(log_buffer_entry_t *e)
 {
-    return e->time;
+    return &e->time;
 }
 
 const char *log_entry_message(log_buffer_entry_t *e)

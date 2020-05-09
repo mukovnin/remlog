@@ -37,8 +37,10 @@ int main(int argc, char **argv)
             msg.line[i++] = c;
         if (c == EOF || c == '\n' || i == sizeof(msg.line) - 1) {
             if (i) {
-                msg.line[i]   = '\0';
-                msg.timestamp = current_time_us();
+                msg.line[i]       = '\0';
+                struct timeval tv = {0, 0};
+                gettimeofday(&tv, NULL);
+                msg.timestamp = tv;
                 int ret, len = sizeof(msg) - sizeof(msg.line) + i + 1;
                 if ((ret = write(sockfd, &msg, len)) != len) {
                     perror(ret == -1 ? "failed write" : "partial write");
